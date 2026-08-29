@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Расписание занятий</title>
 <script src="xlsx.full.min.js"></script>
+<!-- мост MAX: внутри мессенджера даёт WebApp.ready() и системную кнопку «Назад» -->
+<script src="https://st.max.ru/js/max-web-app.js"></script>
 <style>
   :root {
     --bg: #f5f6f8;
@@ -13,6 +15,7 @@
     --muted: #8a8a8e;
     --accent: #0a84ff;
     --border: #e6e6ea;
+    --head: #eef2f8;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -21,6 +24,8 @@
     min-height: 100vh;
   }
   .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 40px; }
+  /* на экране таблицы контейнер шире */
+  .wrap.wide { max-width: 100%; }
 
   header { text-align: center; margin: 12px 0 24px; }
   header h1 { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
@@ -44,60 +49,41 @@
   .day-btn.off { opacity: .45; }
   .day-btn.wide { grid-column: 1 / -1; text-align: center; }
 
-  /* шапка экрана с кнопкой назад */
-  .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  /* шапка экрана таблицы */
+  .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
   .back {
     border: 1px solid var(--border); background: var(--card); border-radius: 12px;
     width: 40px; height: 40px; font-size: 18px; cursor: pointer; color: var(--accent);
     flex: 0 0 40px;
   }
   @media (hover: hover) { .back:hover { border-color: var(--accent); } }
-  .topbar .title { flex: 1; }
   .topbar .title h2 { font-size: 18px; font-weight: 700; }
   .topbar .title span { font-size: 13px; color: var(--muted); }
 
-  /* поиск */
-  .search {
-    width: 100%; border: 1px solid var(--border); border-radius: 12px;
-    padding: 12px 14px; font-size: 15px; margin-bottom: 12px;
-    background: var(--card); outline: none;
+  /* таблица расписания */
+  .tbl-wrap {
+    overflow: auto; background: var(--card);
+    border: 1px solid var(--border); border-radius: 14px;
+    max-height: calc(100vh - 180px);
   }
-  .search:focus { border-color: var(--accent); }
-
-  /* список групп */
-  .groups { display: flex; flex-direction: column; gap: 8px; }
-  .group-btn {
-    border: 1px solid var(--border); background: var(--card); border-radius: 14px;
-    padding: 14px 16px; font-size: 16px; font-weight: 600; text-align: left;
-    cursor: pointer; color: var(--text);
-    display: flex; justify-content: space-between; align-items: center;
+  table { border-collapse: separate; border-spacing: 0; min-width: 640px; width: 100%; font-size: 14px; }
+  th, td {
+    padding: 10px 12px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
   }
-  .group-btn:active { transform: scale(.98); }
-  @media (hover: hover) { .group-btn:hover { border-color: var(--accent); } }
-  .group-btn::after { content: "›"; color: var(--muted); font-size: 20px; }
-
-  /* карточка расписания */
-  .card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 18px; overflow: hidden;
+  th:last-child, td:last-child { border-right: none; }
+  tbody tr:last-child td { border-bottom: none; }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--head); font-size: 13px; font-weight: 700; white-space: nowrap;
   }
-  .card .card-head { padding: 18px; border-bottom: 1px solid var(--border); }
-  .card .card-head h2 { font-size: 20px; font-weight: 700; }
-  .date-badge {
-    display: inline-block; margin-top: 8px; font-size: 13px;
-    background: #eef4ff; color: var(--accent); border-radius: 8px; padding: 4px 10px;
+  td.grp, th.grp {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--card); font-weight: 600; white-space: nowrap;
   }
-  .lesson {
-    display: flex; gap: 14px; padding: 14px 18px; align-items: baseline;
-    border-bottom: 1px solid var(--border);
-  }
-  .lesson:last-child { border-bottom: none; }
-  .lesson .num {
-    flex: 0 0 64px; font-size: 13px; font-weight: 700;
-    color: var(--muted); text-transform: uppercase; letter-spacing: .3px;
-  }
-  .lesson .subj { font-size: 16px; }
-  .lesson.empty .subj { color: var(--muted); }
+  thead th.grp { z-index: 3; background: var(--head); }
+  td.muted { color: var(--muted); }
+  @media (hover: hover) { tbody tr:hover td { background: #f6f9ff; } tbody tr:hover td.grp { background: #f6f9ff; } }
 
   .msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 15px; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
@@ -105,27 +91,26 @@
   /* ====== планшеты и ПК ====== */
   @media (min-width: 720px) {
     .wrap { max-width: 900px; padding: 32px 24px 48px; }
+    .wrap.wide { max-width: 1200px; }
     header h1 { font-size: 28px; }
     header p { font-size: 14px; }
     .days { grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .day-btn.wide { grid-column: auto; text-align: left; }
     .day-btn { padding: 22px 18px; }
-    .groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-content: start; }
     .topbar .title h2 { font-size: 22px; }
-    .card { max-width: 620px; }
+    table { font-size: 15px; }
   }
   @media (min-width: 1100px) {
     .wrap { max-width: 1060px; }
+    .wrap.wide { max-width: 1400px; }
     .days { grid-template-columns: repeat(7, 1fr); gap: 12px; }
     .day-btn { padding: 18px 12px; font-size: 15px; text-align: center; }
     .day-btn.wide { text-align: center; }
-    .groups { grid-template-columns: repeat(4, 1fr); }
-    .card { margin: 0 auto; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="wrap">
 
   <header>
     <h1>Расписание занятий</h1>
@@ -137,23 +122,13 @@
     <div class="days" id="days"></div>
   </section>
 
-  <!-- экран 2: группы -->
-  <section id="view-groups" class="view">
+  <!-- экран 2: таблица дня -->
+  <section id="view-table" class="view">
     <div class="topbar">
       <button class="back" onclick="showDays()">‹</button>
-      <div class="title"><h2 id="groupsDay"></h2><span id="groupsDate"></span></div>
+      <div class="title"><h2 id="tblDay"></h2><span id="tblDate"></span></div>
     </div>
-    <input class="search" id="search" placeholder="Поиск группы…" oninput="renderGroups()">
-    <div class="groups" id="groups"></div>
-  </section>
-
-  <!-- экран 3: расписание группы -->
-  <section id="view-schedule" class="view">
-    <div class="topbar">
-      <button class="back" onclick="showGroups()">‹</button>
-      <div class="title"><h2 id="schedDay"></h2><span>выбери другую группу ← назад</span></div>
-    </div>
-    <div id="scheduleCard"></div>
+    <div id="tableBox"></div>
   </section>
 
   <div class="footer" id="footer"></div>
@@ -170,8 +145,7 @@ const DAYS_RU = {
   "ВОСКРЕСЕНЬЕ": "Воскресенье"
 };
 
-let schedule = {};                 // данные из файла
-let state = { day: null };         // выбранный день
+let schedule = {};  // данные из файла
 
 /* ============ чтение xlsx в браузере ============ */
 function fmtDate(d) {
@@ -180,7 +154,7 @@ function fmtDate(d) {
 }
 
 async function loadFile() {
-  // no-store + метка времени: после замены файла на GitHub данные будут свежие
+  // no-store + метка времени: после замены файла данные будут свежие
   const resp = await fetch(encodeURI(XLSX_FILE) + "?v=" + Date.now(), { cache: "no-store" });
   if (!resp.ok) throw new Error("не найден файл " + XLSX_FILE);
   const lastMod = resp.headers.get("Last-Modified");
@@ -225,13 +199,40 @@ async function loadFile() {
 }
 
 /* ============ навигация ============ */
+// открыто ли внутри MAX (мост подключён)?
+const inMax = typeof window.WebApp !== "undefined" && window.WebApp;
+if (inMax) {
+  WebApp.ready();
+  // системная кнопка «Назад» в MAX: с таблицы — на дни, с дней — закрыть
+  WebApp.BackButton.onClick(() => {
+    const active = document.querySelector(".view.active").id;
+    if (active === "view-table") showDays();
+    else WebApp.close();
+  });
+}
+function syncBackButton() {
+  if (!inMax) return;
+  const active = document.querySelector(".view.active").id;
+  if (active === "view-days") WebApp.BackButton.hide();
+  else WebApp.BackButton.show();
+}
+
 function show(id) {
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById(id).classList.add("active");
+  // на экране таблицы контейнер шире
+  document.getElementById("wrap").classList.toggle("wide", id === "view-table");
   window.scrollTo(0, 0);
+  syncBackButton();
 }
 
-/* экран 1: дни */
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* экран 1: дни (дата под названием — мелким текстом, из файла) */
 function renderDays() {
   const box = document.getElementById("days");
   box.innerHTML = "";
@@ -241,66 +242,39 @@ function renderDays() {
     const b = document.createElement("button");
     b.className = "day-btn" + (available ? "" : " off") + (day === "ВОСКРЕСЕНЬЕ" ? " wide" : "");
     b.innerHTML = DAYS_RU[day] +
-      `<small>${available ? (d.date || "") : (day === "ВОСКРЕСЕНЬЕ" ? "выходной" : "занятий нет")}</small>`;
-    b.onclick = () => available ? showGroupsFor(day)
+      `<small>${available ? (d.date || "дата не указана") : (day === "ВОСКРЕСЕНЬЕ" ? "выходной" : "занятий нет")}</small>`;
+    b.onclick = () => available ? showTable(day)
       : alert(day === "ВОСКРЕСЕНЬЕ" ? "Воскресенье — выходной :)" : "В этот день занятий нет");
     box.appendChild(b);
   });
 }
 
-/* экран 2: группы */
-function showGroupsFor(day) {
-  state.day = day;
+/* экран 2: вся таблица дня */
+function showTable(day) {
   const d = schedule[day];
-  document.getElementById("groupsDay").textContent = DAYS_RU[day];
-  document.getElementById("groupsDate").textContent =
+  document.getElementById("tblDay").textContent = DAYS_RU[day];
+  document.getElementById("tblDate").textContent =
     d.date ? "Расписание от " + d.date : "Дата в файле не указана";
-  document.getElementById("search").value = "";
-  renderGroups();
-  show("view-groups");
-}
 
-function renderGroups() {
-  const q = document.getElementById("search").value.trim().toLowerCase();
-  const box = document.getElementById("groups");
-  box.innerHTML = "";
-  const list = schedule[state.day].rows.map(r => r[0]).filter(g => g.toLowerCase().includes(q));
-  if (!list.length) { box.innerHTML = `<div class="msg">Ничего не найдено</div>`; return; }
-  list.forEach(g => {
-    const b = document.createElement("button");
-    b.className = "group-btn";
-    b.textContent = g;
-    b.onclick = () => showSchedule(g);
-    box.appendChild(b);
+  let html = '<div class="tbl-wrap"><table><thead><tr><th class="grp">Группа</th>';
+  d.pairs.forEach(p => { html += `<th>${esc(p)}</th>`; });
+  html += "</tr></thead><tbody>";
+
+  d.rows.forEach(r => {
+    html += `<tr><td class="grp">${esc(r[0])}</td>`;
+    r.slice(1).forEach(s => {
+      const muted = /САМОСТОЯТЕЛЬН|^\s*$/i.test(s);
+      html += `<td${muted ? ' class="muted"' : ""}>${s ? esc(s) : "—"}</td>`;
+    });
+    html += "</tr>";
   });
+  html += "</tbody></table></div>";
+
+  document.getElementById("tableBox").innerHTML = html;
+  show("view-table");
 }
 
-/* экран 3: расписание группы */
-function showSchedule(group) {
-  const d = schedule[state.day];
-  const row = d.rows.find(r => r[0].toLowerCase() === group.toLowerCase());
-  if (!row) { alert("Группа не найдена"); return; }
-
-  document.getElementById("schedDay").textContent = DAYS_RU[state.day];
-  const lessons = d.pairs.map((p, i) => ({ pair: p, subject: row[i + 1] || "—" }));
-
-  document.getElementById("scheduleCard").innerHTML = `
-    <div class="card">
-      <div class="card-head">
-        <h2>Группа ${row[0]}</h2>
-        <span class="date-badge">${d.date ? "Дата: " + d.date : "Дата не указана"}</span>
-      </div>
-      ${lessons.map(l => `
-        <div class="lesson ${l.subject === "—" ? "empty" : ""}">
-          <div class="num">${l.pair}</div>
-          <div class="subj">${l.subject}</div>
-        </div>`).join("")}
-    </div>`;
-  show("view-schedule");
-}
-
-function showDays()   { show("view-days"); }
-function showGroups() { show("view-groups"); }
+function showDays() { show("view-days"); }
 
 /* ============ старт ============ */
 loadFile()
