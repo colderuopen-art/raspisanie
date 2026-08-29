@@ -48,6 +48,15 @@
   .day-btn small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
   .day-btn.off { opacity: .45; }
   .day-btn.wide { grid-column: 1 / -1; text-align: center; }
+  .day-btn.bells { background: #eef4ff; border-color: #cfe0ff; color: var(--accent); text-align: center; }
+  .day-btn.bells small { color: var(--accent); opacity: .7; }
+
+  /* экран «Расписание звонков» */
+  .bells-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px; text-align: center;
+  }
+  .bells-card img { max-width: 100%; height: auto; border-radius: 8px; }
 
   /* шапка экрана таблицы */
   .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
@@ -131,12 +140,26 @@
     <div id="tableBox"></div>
   </section>
 
+  <!-- экран 3: расписание звонков (картинка) -->
+  <section id="view-bells" class="view">
+    <div class="topbar">
+      <button class="back" onclick="showDays()">‹</button>
+      <div class="title"><h2>Расписание звонков</h2><span>время начала и конца пар</span></div>
+    </div>
+    <div class="bells-card">
+      <img id="bellsImg" alt="Расписание звонков"
+           onerror="this.style.display='none';document.getElementById('bellsErr').style.display='block';">
+      <div class="msg" id="bellsErr" style="display:none">Файл Звонки.jpg не найден рядом с сайтом</div>
+    </div>
+  </section>
+
   <div class="footer" id="footer"></div>
 </div>
 
 <script>
 /* ============ настройки ============ */
 const XLSX_FILE = "Расписание.xlsx";  // файл должен лежать рядом с index.html
+const BELLS_FILE = "Звонки.jpg";      // картинка со звонками — рядом с index.html
 
 const DAYS = ["ПОНЕДЕЛЬНИК","ВТОРНИК","СРЕДА","ЧЕТВЕРГ","ПЯТНИЦА","СУББОТА","ВОСКРЕСЕНЬЕ"];
 const DAYS_RU = {
@@ -206,7 +229,7 @@ if (inMax) {
   // системная кнопка «Назад» в MAX: с таблицы — на дни, с дней — закрыть
   WebApp.BackButton.onClick(() => {
     const active = document.querySelector(".view.active").id;
-    if (active === "view-table") showDays();
+    if (active === "view-table" || active === "view-bells") showDays();
     else WebApp.close();
   });
 }
@@ -247,6 +270,23 @@ function renderDays() {
       : alert(day === "ВОСКРЕСЕНЬЕ" ? "Воскресенье — выходной :)" : "В этот день занятий нет");
     box.appendChild(b);
   });
+
+  // 8-я кнопка: расписание звонков (картинка)
+  const bells = document.createElement("button");
+  bells.className = "day-btn bells wide";
+  bells.innerHTML = "Расписание звонков<small>время начала и конца пар</small>";
+  bells.onclick = showBells;
+  box.appendChild(bells);
+}
+
+/* экран 3: расписание звонков */
+function showBells() {
+  const img = document.getElementById("bellsImg");
+  document.getElementById("bellsErr").style.display = "none";
+  img.style.display = "";
+  // ?v=... — чтобы после замены картинки показывалась свежая, а не из кэша
+  img.src = encodeURI(BELLS_FILE) + "?v=" + Date.now();
+  show("view-bells");
 }
 
 /* экран 2: вся таблица дня */
