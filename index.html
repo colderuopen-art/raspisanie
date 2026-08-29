@@ -236,7 +236,7 @@ async function loadFile() {
 
   const upd = lastMod ? new Date(lastMod) : null;
   document.getElementById("fileInfo").textContent =
-    "Файл: " + XLSX_FILE + (upd ? " · обновлён " + fmtDate(upd) : "");
+    upd ? "Обновление " + fmtDate(upd) : "";
 }
 
 /* ============ навигация ============ */
