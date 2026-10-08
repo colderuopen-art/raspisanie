@@ -61,10 +61,9 @@
   @media (hover: hover) { .day-btn:hover { box-shadow: 0 2px 10px rgba(23,50,79,.10); } }
   .day-btn small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
   .day-btn.wide { grid-column: 1 / -1; text-align: center; }
-  /* кнопка звонков — как остальные, только фон с лёгкой голубизной */
   .day-btn.bells { background: #ddeafa; }
-  /* НОВОЕ: кнопка заочников — светло-оранжевая */
-  .day-btn.zach { background: #fdece3; border-top-color: var(--orange); }
+  /* кнопка заочников — светло-оранжевая */
+  .day-btn.zach  { background: #fdece3; border-top-color: var(--orange); }
 
   /* шапка экрана таблицы */
   .topbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 14px; }
@@ -113,9 +112,9 @@
   .msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 15px; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 
-  /* ====== НОВОЕ: экран «Заочное обучение» ====== */
+  /* ====== экран «Заочное обучение» ====== */
   .zach-tabs {
-    display: flex; overflow-x: auto; gap: 8px;
+    display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px;
     padding: 4px 2px 12px; margin-bottom: 12px;
     border-bottom: 1px solid var(--border);
     -webkit-overflow-scrolling: touch;
@@ -129,23 +128,33 @@
     color: var(--text); white-space: nowrap;
     transition: background .12s, color .12s, border-color .12s;
   }
-  .zach-tab:hover { background: #f2f7fd; }
+  @media (hover: hover) { .zach-tab:hover { background: #f2f7fd; } }
   .zach-tab.active {
     background: var(--navy); color: #fff; border-color: var(--navy);
   }
 
-  /* таблица заочников: у нас "файл как есть", поэтому строки с днями — заголовочные */
-  .zach-table td, .zach-table th { font-size: 13px; padding: 8px 10px; }
-  .zach-day-row td {
-    background: #eef4fb; font-weight: 700; color: var(--navy);
+  /* таблица заочников: три недели по три подколонки */
+  .zach-table { min-width: 900px; font-size: 13px; }
+  .zach-table th, .zach-table td { padding: 8px 10px; }
+  .zach-table thead th { text-align: center; }
+  .zach-table thead tr.dates th { background: #26415f; font-size: 12px; }
+  .zach-table thead tr.cols  th { background: var(--navy); font-size: 11px; color: #cdd9e8; }
+  .zach-table td.day-row {
+    background: #eef4fb; color: var(--navy); font-weight: 700;
+    text-align: center; white-space: nowrap;
   }
-  .zach-date-row td {
-    background: #f7fafc; color: var(--muted); font-size: 12px;
+  .zach-table td.date-row {
+    background: #f7fafc; color: var(--muted); font-size: 12px; text-align: center;
   }
-  .zach-group-title {
-    font-size: 14px; font-weight: 700; color: var(--navy);
-    padding: 12px 4px 6px; margin-bottom: 4px;
+  .zach-table td.num {
+    background: var(--card); font-weight: 600; text-align: center;
+    color: var(--navy); position: sticky; left: 0; z-index: 1;
+    width: 42px;
   }
+  .zach-table thead th.num {
+    background: #26415f; color: #fff; position: sticky; left: 0; z-index: 3;
+  }
+  .zach-table td.kab { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
   /* ====== планшеты и ПК ====== */
   @media (min-width: 720px) {
@@ -205,7 +214,7 @@
     </div>
   </section>
 
-  <!-- НОВОЕ: экран 4: расписание заочного обучения -->
+  <!-- экран 4: расписание заочного обучения -->
   <section id="view-zach" class="view">
     <div class="topbar">
       <button class="back" onclick="showDays()">‹</button>
@@ -222,17 +231,18 @@
 /* ============ настройки ============ */
 const XLSX_FILE  = "Расписание.xlsx";  // очники
 const BELLS_FILE = "Звонки.jpg";       // картинка со звонками
-const ZACH_FILE  = "зо.xlsx";          // НОВОЕ: файл для заочников
+const ZACH_FILE  = "зо.xlsx";          // заочники
 
-// на экране только рабочие дни; воскресенья нет
 const DAYS = ["ПОНЕДЕЛЬНИК","ВТОРНИК","СРЕДА","ЧЕТВЕРГ","ПЯТНИЦА","СУББОТА"];
 const DAYS_RU = {
   "ПОНЕДЕЛЬНИК": "Понедельник", "ВТОРНИК": "Вторник", "СРЕДА": "Среда",
   "ЧЕТВЕРГ": "Четверг", "ПЯТНИЦА": "Пятница", "СУББОТА": "Суббота"
 };
+// Порядок дней недели для сортировки расписания заочников
+const WEEK_ORDER = ["ПОНЕДЕЛЬНИК","ВТОРНИК","СРЕДА","ЧЕТВЕРГ","ПЯТНИЦА","СУББОТА","ВОСКРЕСЕНЬЕ"];
 
 let schedule = {};        // очники
-let zachGroups = [];      // НОВОЕ: [{title, rows}, ...] — блоки заочников
+let zachGroups = [];      // заочники: [{tab, title, weeks:[{dateStr, days:{ПОНЕДЕЛЬНИК:{subj,prep,kab},...}}]}]
 
 /* ============ вспомогательное ============ */
 function fmtDate(d) {
@@ -243,6 +253,28 @@ function esc(s) {
   const d = document.createElement("div");
   d.textContent = s == null ? "" : String(s);
   return d.innerHTML;
+}
+// Преобразование значения ячейки в строку: дату — в дд.мм.гггг
+function cellToString(v) {
+  if (v == null) return "";
+  if (v instanceof Date && !isNaN(v)) return fmtDate(v);
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+  return s;
+}
+// Является ли строка "строкой дня недели" (Понедельник / Вторник / ...)
+function isDayHeaderRow(row) {
+  const vals = row.map(v => cellToString(v)).filter(Boolean);
+  if (!vals.length) return false;
+  const hits = vals.filter(v => WEEK_ORDER.includes(v.toUpperCase()));
+  return hits.length >= 1 && hits.length === vals.length;
+}
+// Является ли строка "строкой с датой" (например, 12.10.2026)
+function isDateRow(row) {
+  const vals = row.map(v => cellToString(v)).filter(Boolean);
+  if (!vals.length) return false;
+  return vals.every(v => /^\d{2}\.\d{2}\.\d{4}$/.test(v));
 }
 
 /* ============ чтение xlsx очников ============ */
@@ -289,11 +321,15 @@ async function loadFile() {
     upd ? "Обновление " + fmtDate(upd) : "";
 }
 
-/* ============ НОВОЕ: чтение xlsx заочников ============
-   Файл содержит ОДИН лист, внутри которого — несколько блоков,
-   разделённых заголовками вида:
-     "Расписание занятий заочного отделения групп Эу-358,359,360"
-   Режем лист на блоки по этим заголовкам и делаем из них вкладки.
+/* ============ чтение xlsx заочников ============
+   Файл содержит один лист с несколькими блоками, разделёнными
+   заголовками вида "Расписание занятий заочного отделения групп X".
+   Внутри каждого блока для каждой недели есть:
+     - строка "Понедельник" / "Вторник" / ...
+     - строка с датой (12.10.2026)
+     - 7 строк пар: № | Предмет | Преподаватель | Каб (×3 недели)
+   Парсим всё это в структуру:
+     zachGroups = [{tab, title, weeks:[{dateStr, days:{ДЕНЬ:{pairs:[{subj,prep,kab}]}}}]}]
 */
 async function loadZachFile() {
   try {
@@ -306,17 +342,17 @@ async function loadZachFile() {
     for (const sheetName of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
 
-      // Индекс колонки, в которой лежат заголовки блоков (обычно A=0 или B=1).
-      // Ищем по первой строке, содержащей подстроку "заочн".
+      // Ищем столбец, где лежат заголовки блоков — обычно B, но подстрахуемся.
       let titleCol = 1;
+      outer:
       for (let r = 0; r < rows.length; r++) {
         for (let c = 0; c < (rows[r] || []).length; c++) {
           const v = String(rows[r][c] || "");
-          if (/заочн/i.test(v) && /групп/i.test(v)) { titleCol = c; r = rows.length; break; }
+          if (/заочн/i.test(v) && /групп/i.test(v)) { titleCol = c; break outer; }
         }
       }
 
-      // Находим все строки-заголовки блоков
+      // Находим все заголовки блоков
       const titleIdx = [];
       for (let r = 0; r < rows.length; r++) {
         const v = String((rows[r] || [])[titleCol] || "").trim();
@@ -325,30 +361,101 @@ async function loadZachFile() {
         }
       }
 
-      // Режем на блоки
       for (let i = 0; i < titleIdx.length; i++) {
         const start = titleIdx[i].row;
         const end   = (i + 1 < titleIdx.length) ? titleIdx[i + 1].row : rows.length;
+        const block = rows.slice(start + 1, end);
 
-        // Строки блока, начиная со следующей после заголовка
-        const blockRows = [];
-        for (let r = start + 1; r < end; r++) {
-          const row = rows[r] || [];
-          // Обрезаем строку по последней значимой ячейке
-          let last = -1;
-          for (let c = 0; c < row.length; c++) {
-            if (String(row[c] || "").trim() !== "") last = c;
+        // --- определяем, сколько недель идут параллельно ---
+        // Возьмём самую "широкую" строку с днями недели — по ней поймём,
+        // сколько раз в строке встречается "Понедельник" (или другой день).
+        let maxCols = 0;
+        for (const r of block) maxCols = Math.max(maxCols, (r || []).length);
+        // Обычно 3 недели × 4 колонки (№, Предмет, Преподаватель, Каб) = 12
+        const WEEK_STRIDE = 4;
+        const weekCount = Math.max(1, Math.floor((maxCols - 1) / WEEK_STRIDE));
+        // Офсеты начала каждой недели внутри строки:
+        // сдвиг в файле: колонка № у первой недели = 1, потом 2-3-4 —
+        // но во второй неделе та же структура сдвинута на 5, третья — на 9.
+        // Проще: смотрим на реальные данные, у нас 1-я неделя на B..E (1..4),
+        // 2-я — на F..I (5..8), 3-я — на J..M (9..12).
+        // Мы используем индексы массива (0-based). Тогда:
+        //   week w: colNum    = 1 + w*4
+        //           colSubj   = 2 + w*4
+        //           colPrep   = 3 + w*4
+        //           colKab    = 4 + w*4
+
+        // --- парсим блок по строкам ---
+        const weeks = [];
+        for (let w = 0; w < weekCount; w++) {
+          weeks.push({ dateStr: "", days: {} });
+        }
+        let curDay = null;         // текущий день недели
+        let curWeek = -1;          // текущая неделя (индекс) — устанавливается по date-строке
+
+        for (const raw of block) {
+          const row = raw || [];
+
+          // Строка дня недели? Может встречаться несколько раз (в разных неделях).
+          if (isDayHeaderRow(row)) {
+            // Определим, какие дни в этой строке — по позициям
+            // Первый день — Понедельник (или что в файле), дальше идут другие.
+            // Обычно в одной строке все 3 недели содержат один и тот же день.
+            let dayName = null;
+            for (let c = 0; c < row.length; c++) {
+              const v = cellToString(row[c]).toUpperCase();
+              if (WEEK_ORDER.includes(v)) { dayName = v; break; }
+            }
+            if (dayName) {
+              curDay = dayName;
+              // убедимся, что во всех неделях создан контейнер этого дня
+              for (const wk of weeks) {
+                if (!wk.days[curDay]) wk.days[curDay] = { pairs: [] };
+              }
+            }
+            continue;
           }
-          if (last >= 0) blockRows.push(row.slice(0, last + 1));
-          else blockRows.push([]); // пустая строка — сохраняем как разделитель
+
+          // Строка с датами? (по одной дате на каждую неделю)
+          if (isDateRow(row)) {
+            // Даты по неделям: идут подряд в "тех же" позициях, что и №,
+            // но обычно просто подряд. Соберём все даты, найденные в строке.
+            const dates = [];
+            for (let c = 0; c < row.length; c++) {
+              const s = cellToString(row[c]);
+              if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) dates.push(s);
+            }
+            // Раскидываем по неделям: dates[0] → weeks[0], dates[1] → weeks[1], ...
+            for (let k = 0; k < Math.min(dates.length, weeks.length); k++) {
+              if (!weeks[k].dateStr) weeks[k].dateStr = dates[k];
+            }
+            continue;
+          }
+
+          // Пустая строка-разделитель
+          const nonEmpty = row.map(v => cellToString(v)).filter(Boolean);
+          if (!nonEmpty.length) continue;
+
+          // Строка пары? У неё в каждой "недельной" четвёрке есть № пары (1..7).
+          // Обрабатываем как "строка со всеми тремя неделями одновременно".
+          if (curDay) {
+            for (let w = 0; w < weeks.length; w++) {
+              const off = 1 + w * 4;
+              const numRaw = row[off];
+              const subj   = cellToString(row[off + 1]);
+              const prep   = cellToString(row[off + 2]);
+              const kab    = cellToString(row[off + 3]);
+              const num    = parseInt(cellToString(numRaw), 10);
+              if (!isNaN(num) && num >= 1 && num <= 8) {
+                const wk = weeks[w];
+                if (!wk.days[curDay]) wk.days[curDay] = { pairs: [] };
+                wk.days[curDay].pairs[num - 1] = { subj, prep, kab };
+              }
+            }
+          }
         }
 
-        // Отрезаем "хвостовые" пустые строки блока
-        while (blockRows.length && blockRows[blockRows.length - 1].every(v => String(v || "").trim() === "")) {
-          blockRows.pop();
-        }
-
-        // Заголовок для вкладки: сокращаем до названий групп
+        // Краткое имя для вкладки
         let tabTitle = titleIdx[i].title
           .replace(/^Расписание занятий заочного отделения\s*/i, "")
           .replace(/^групп\s*/i, "")
@@ -356,16 +463,20 @@ async function loadZachFile() {
         if (!tabTitle) tabTitle = "Группа " + (i + 1);
 
         zachGroups.push({
-          title: titleIdx[i].title,     // полный заголовок для подписи
-          tab:   tabTitle,              // короткое имя для вкладки
-          rows:  blockRows,
+          tab: tabTitle,
+          title: titleIdx[i].title,
+          weeks: weeks,
         });
       }
     }
   } catch (e) {
     console.error("Ошибка загрузки файла заочников:", e);
-    zachGroups = [{ title: "Ошибка загрузки", tab: "Ошибка",
-                    rows: [[`Не удалось загрузить файл ${ZACH_FILE}`]] }];
+    zachGroups = [{
+      tab: "Ошибка",
+      title: "Ошибка загрузки",
+      weeks: [{ dateStr: "", days: {} }],
+      error: `Не удалось загрузить файл ${ZACH_FILE}`,
+    }];
   }
 }
 
@@ -409,14 +520,12 @@ function renderDays() {
     box.appendChild(b);
   });
 
-  // кнопка «Расписание звонков»
   const bells = document.createElement("button");
   bells.className = "day-btn bells wide";
   bells.innerHTML = "Расписание звонков<small>время начала и конца пар</small>";
   bells.onclick = showBells;
   box.appendChild(bells);
 
-  // НОВОЕ: кнопка «Расписание заочное обучение»
   const zach = document.createElement("button");
   zach.className = "day-btn zach wide";
   zach.innerHTML = "Расписание заочное обучение<small>сессии по группам заочного отделения</small>";
@@ -467,105 +576,58 @@ function showBells() {
   show("view-bells");
 }
 
-/* ============ НОВОЕ: экран 4 — заочники ============
-   Рендерит таблицу блока "как в Excel": без заголовков <thead>,
-   первая строка блока — обычная строка таблицы. Строки, где во всех
-   ячейках написано название дня недели, подсвечиваем. Строки с датой —
-   тоже слегка подсвечиваем. Пустые строки оставляем как разделители.
+/* ============ экран 4: заочники ============
+   Таблица для выбранной группы:
+   - thead: две строки — «даты недель» и «№ | Предмет | Преподаватель | Каб»
+   - tbody: идём по дням недели по порядку Пн..Вс, внутри дня — 7 строк пар
+   - для дней, где нет данных ни в одной неделе — не выводим
 */
 function renderZachTable(idx) {
   const group = zachGroups[idx];
   if (!group) return;
 
-  // Переключаем активную вкладку
+  // активная вкладка
   document.querySelectorAll(".zach-tab").forEach((t, i) => {
     t.classList.toggle("active", i === idx);
   });
   document.getElementById("zachSubtitle").textContent = group.title;
 
-  const rows = group.rows || [];
-  if (!rows.length) {
+  if (group.error) {
     document.getElementById("zachTableBox").innerHTML =
-      `<div class="msg">Нет данных на этот блок</div>`;
+      `<div class="msg">${esc(group.error)}</div>`;
     return;
   }
 
-  // Определяем максимальное число колонок
-  const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
-
-  // Собираем HTML-таблицу
-  let html = '<div class="tbl-wrap"><table class="zach-table"><tbody>';
-  rows.forEach(r => {
-    // Пустая строка-разделитель
-    if (!r.length || r.every(v => String(v || "").trim() === "")) {
-      html += `<tr class="zach-date-row"><td colspan="${colCount}">&nbsp;</td></tr>`;
-      return;
-    }
-
-    // Проверяем тип строки
-    const nonEmpty = r.map(v => String(v || "").trim()).filter(Boolean);
-    const isDayRow = nonEmpty.length > 0 &&
-      nonEmpty.every(v => ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"].includes(v));
-    const isDateRow = nonEmpty.length > 0 &&
-      nonEmpty.every(v => /^\d{4}-\d{2}-\d{2}/.test(v) || /^\d{2}\.\d{2}\.\d{4}$/.test(v));
-
-    let cls = "";
-    if (isDayRow) cls = ' class="zach-day-row"';
-    else if (isDateRow) cls = ' class="zach-date-row"';
-
-    html += `<tr${cls}>`;
-    for (let c = 0; c < colCount; c++) {
-      const raw = r[c];
-      let val = raw == null ? "" : String(raw);
-      // Даты форматируем красиво
-      if (raw instanceof Date && !isNaN(raw)) val = fmtDate(raw);
-      // ISO-строку с временем тоже форматируем
-      const m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (m) val = `${m[3]}.${m[2]}.${m[1]}`;
-      html += `<td>${esc(val)}</td>`;
-    }
-    html += "</tr>";
-  });
-  html += "</tbody></table></div>";
-
-  document.getElementById("zachTableBox").innerHTML = html;
-}
-
-function showZach() {
-  const tabsBox = document.getElementById("zachTabs");
-  tabsBox.innerHTML = "";
-
-  if (!zachGroups.length) {
+  const weeks = group.weeks || [];
+  if (!weeks.length) {
     document.getElementById("zachTableBox").innerHTML =
-      `<div class="msg">Файл ${ZACH_FILE} не найден или пуст</div>`;
-    document.getElementById("zachSubtitle").textContent = "";
-    show("view-zach");
+      `<div class="msg">Нет данных по этой группе</div>`;
     return;
   }
 
-  // Вкладки по группам
-  zachGroups.forEach((g, i) => {
-    const tab = document.createElement("button");
-    tab.className = "zach-tab";
-    tab.textContent = g.tab;
-    tab.onclick = () => renderZachTable(i);
-    tabsBox.appendChild(tab);
+  // Определим, какие дни недели встречаются хотя бы в одной неделе группы
+  const usedDays = WEEK_ORDER.filter(day =>
+    weeks.some(w => w.days && w.days[day] && w.days[day].pairs.some(Boolean))
+  );
+  if (!usedDays.length) {
+    document.getElementById("zachTableBox").innerHTML =
+      `<div class="msg">Нет занятий в расписании этой группы</div>`;
+    return;
+  }
+
+  // Определим максимальное количество пар среди дней (обычно 7)
+  let maxPairs = 0;
+  usedDays.forEach(day => {
+    weeks.forEach(w => {
+      const arr = (w.days?.[day]?.pairs) || [];
+      maxPairs = Math.max(maxPairs, arr.length);
+    });
   });
+  if (maxPairs < 1) maxPairs = 7;
 
-  renderZachTable(0);
-  show("view-zach");
-}
+  // Шапка таблицы
+  let html = '<div class="tbl-wrap"><table class="zach-table"><thead>';
 
-/* ============ прочее ============ */
-function showDays() { show("view-days"); }
-
-/* ============ старт ============ */
-Promise.all([loadFile(), loadZachFile()])
-  .then(() => renderDays())
-  .catch(e => {
-    document.getElementById("fileInfo").textContent = "Ошибка: " + e.message;
-    renderDays();
-  });
-</script>
-</body>
-</html>
+  // Строка 1: «День недели / №» + по 3 колонки на каждую неделю (дата)
+  html += '<tr class="dates">';
+  html += `<th class="num" rowspan
