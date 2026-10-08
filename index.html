@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes, maximum-scale=5.0">
 <title>Расписание занятий — ЕЭТ</title>
 <script src="xlsx.full.min.js"></script>
 <script src="https://st.max.ru/js/max-web-app.js"></script>
@@ -105,14 +105,19 @@
   .msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 15px; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 
-  /* ======== Таблица заочников «как есть» ======== */
+  /* ======== Таблица заочников «как есть», с липкими заголовками ======== */
   .zach-wrap {
     overflow: auto; background: var(--card);
     border: 1px solid var(--border); border-radius: 14px;
     max-height: calc(100vh - 190px);
+    /* включаем нативный pinch-to-zoom и плавный скролл */
+    touch-action: pan-x pan-y pinch-zoom;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   .zach-wrap table {
-    border-collapse: collapse; min-width: 100%; width: max-content;
+    border-collapse: separate; border-spacing: 0;
+    width: max-content; min-width: 100%;
     font-size: 13px;
   }
   .zach-wrap th, .zach-wrap td {
@@ -120,22 +125,29 @@
     border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
     white-space: pre-wrap; word-break: break-word;
+    background: var(--card);
   }
   .zach-wrap th:last-child, .zach-wrap td:last-child { border-right: none; }
-  /* строка-заголовок группы */
+
+  /* Прилипающие сверху: заголовок группы и следующая за ним строка шапки.
+     Два уровня sticky: заголовок группы на 0, шапка под ним.
+     Пока группа не закончилась — висят оба. Как только доскроллил до новой
+     группы — её заголовок прилипает поверх, а старый «уезжает». */
   .zach-wrap tr.group-title td {
+    position: sticky; top: 0; z-index: 6;
     background: #eaf1fa; color: var(--navy);
     font-weight: 700; font-size: 14px;
     border-top: 2px solid var(--navy);
     border-bottom: 1px solid var(--navy);
   }
-  /* строка шапки таблицы (№ | День недели | ...) — повторяется у каждой недели */
+  /* Шапка (№ | День недели | Преподаватель | Каб) — прилипает под заголовком группы */
   .zach-wrap tr.header-row td {
+    position: sticky; top: 30px; z-index: 5;
     background: var(--navy); color: #fff;
     font-weight: 700; font-size: 12px;
     white-space: nowrap;
   }
-  /* строка с днём недели (Понедельник, Вторник, ...) */
+  /* строка с днём недели */
   .zach-wrap tr.day-row td {
     background: #eef4fb; color: var(--navy); font-weight: 700;
   }
@@ -144,7 +156,9 @@
     background: #f7fafc; color: var(--muted); font-size: 12px;
   }
   /* пустая строка-разделитель */
-  .zach-wrap tr.empty-row td { background: transparent; border: none; padding: 4px 0; }
+  .zach-wrap tr.empty-row td {
+    background: transparent; border: none; padding: 6px 0;
+  }
 
   @media (min-width: 720px) {
     .wrap { max-width: 900px; padding: 0 24px 48px; }
@@ -155,6 +169,7 @@
     .day-btn { padding: 20px 18px; }
     .topbar .title h2 { font-size: 22px; }
     table { font-size: 15px; }
+    .zach-wrap tr.header-row td { top: 32px; }
   }
   @media (min-width: 1100px) {
     .wrap { max-width: 1060px; }
@@ -225,7 +240,7 @@ const DAYS_RU = {
 const WEEK_ORDER = ["ПОНЕДЕЛЬНИК","ВТОРНИК","СРЕДА","ЧЕТВЕРГ","ПЯТНИЦА","СУББОТА","ВОСКРЕСЕНЬЕ"];
 
 let schedule = {};
-let zachSheets = [];   // [{name, rows}]
+let zachSheets = [];
 
 /* ============ утилиты ============ */
 function fmtDate(d) {
@@ -262,7 +277,6 @@ function isGroupTitleRow(row) {
 }
 function isHeaderRow(row) {
   const vals = row.map(cellToString).filter(Boolean).map(v => v.toLowerCase());
-  // что-то типа "№ | День недели | Преподаватель | Каб"
   return vals.includes("№") && vals.some(v => /день недели/.test(v));
 }
 
@@ -304,7 +318,7 @@ async function loadFile() {
   document.getElementById("fileInfo").textContent = upd ? "Обновление " + fmtDate(upd) : "";
 }
 
-/* ============ загрузка заочников (как есть) ============ */
+/* ============ загрузка заочников ============ */
 async function loadZachFile() {
   zachSheets = [];
   try {
@@ -314,7 +328,6 @@ async function loadZachFile() {
 
     for (const sheetName of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
-      // Отрезаем хвостовые пустые строки
       while (rows.length && rows[rows.length - 1].every(v => String(v || "").trim() === "")) {
         rows.pop();
       }
@@ -417,7 +430,13 @@ function showBells() {
   show("view-bells");
 }
 
-/* ============ заочники ============ */
+/* ============ заочники ============
+   Каждая группа = одна таблица. Внутри шапка группы и шапка колонок
+   прилипают сверху (position: sticky), пока идёт эта группа.
+   Как только доскроллил до следующей группы — её шапка налезает поверх.
+   Pinch-to-zoom включён через touch-action: pan-x pan-y pinch-zoom и
+   meta viewport (user-scalable=yes).
+*/
 function showZach() {
   const box = document.getElementById("zachTableBox");
 
@@ -432,7 +451,6 @@ function showZach() {
     const rows = sheet.rows || [];
     if (!rows.length) return;
 
-    // Максимум колонок по всем строкам
     const colCount = rows.reduce((m, r) => Math.max(m, (r || []).length), 0);
 
     html += '<div class="zach-wrap" style="margin-bottom:16px"><table>';
@@ -441,19 +459,16 @@ function showZach() {
       const vals = r.map(cellToString);
       const nonEmpty = vals.filter(Boolean);
 
-      // Пустая строка
       if (!nonEmpty.length) {
         html += `<tr class="empty-row"><td colspan="${colCount}"></td></tr>`;
         return;
       }
 
-      // Заголовок группы
       if (isGroupTitleRow(r)) {
         html += `<tr class="group-title"><td colspan="${colCount}">${esc(nonEmpty[0])}</td></tr>`;
         return;
       }
 
-      // Шапка таблицы (№ | День недели | Преподаватель | Каб)
       if (isHeaderRow(r)) {
         let tds = "";
         for (let c = 0; c < colCount; c++) tds += `<td>${esc(vals[c] || "")}</td>`;
@@ -461,7 +476,6 @@ function showZach() {
         return;
       }
 
-      // Строка с днём недели
       if (isDayRow(r)) {
         let tds = "";
         for (let c = 0; c < colCount; c++) tds += `<td>${esc(vals[c] || "")}</td>`;
@@ -469,7 +483,6 @@ function showZach() {
         return;
       }
 
-      // Строка с датами
       if (isDateRow(r)) {
         let tds = "";
         for (let c = 0; c < colCount; c++) tds += `<td>${esc(vals[c] || "")}</td>`;
@@ -477,7 +490,6 @@ function showZach() {
         return;
       }
 
-      // Обычная строка
       let tds = "";
       for (let c = 0; c < colCount; c++) {
         const v = vals[c] || "";
