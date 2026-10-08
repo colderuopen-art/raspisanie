@@ -630,4 +630,87 @@ function renderZachTable(idx) {
 
   // Строка 1: «День недели / №» + по 3 колонки на каждую неделю (дата)
   html += '<tr class="dates">';
-  html += `<th class="num" rowspan
+  html += `<th class="num" rowspan="2">№</th>`;
+  html += `<th rowspan="2">День</th>`;
+  weeks.forEach(w => {
+    html += `<th colspan="3">${esc(w.dateStr || "дата не указана")}</th>`;
+  });
+  html += "</tr>";
+
+  // Строка 2: у каждой недели — 3 подколонки
+  html += '<tr class="cols">';
+  weeks.forEach(() => {
+    html += `<th>Предмет</th><th>Преподаватель</th><th>Каб.</th>`;
+  });
+  html += "</tr>";
+  html += "</thead><tbody>";
+
+  // Тело: дни по порядку
+  usedDays.forEach(day => {
+    // Определим, есть ли хоть что-то в этом дне
+    const anyData = weeks.some(w => (w.days?.[day]?.pairs || []).some(p => p && (p.subj || p.prep || p.kab)));
+    if (!anyData) return;
+
+    // Строка-разделитель с названием дня (colspan)
+    const totalCols = 2 + weeks.length * 3;
+    html += `<tr><td class="day-row" colspan="${totalCols}">${DAYS_RU[day] || day}</td></tr>`;
+
+    // Строки пар
+    for (let p = 0; p < maxPairs; p++) {
+      html += "<tr>";
+      html += `<td class="num">${p + 1}</td>`;
+      html += `<td></td>`; // колонка "День" — пустая (название дня выше)
+      weeks.forEach(w => {
+        const pair = (w.days?.[day]?.pairs?.[p]) || null;
+        const subj = pair?.subj || "";
+        const prep = pair?.prep || "";
+        const kab  = pair?.kab  || "";
+        html += `<td>${subj ? esc(subj) : '<span class="muted">—</span>'}</td>`;
+        html += `<td>${prep ? esc(prep) : '<span class="muted">—</span>'}</td>`;
+        html += `<td class="kab">${kab ? esc(kab) : '<span class="muted">—</span>'}</td>`;
+      });
+      html += "</tr>";
+    }
+  });
+
+  html += "</tbody></table></div>";
+  document.getElementById("zachTableBox").innerHTML = html;
+}
+
+function showZach() {
+  const tabsBox = document.getElementById("zachTabs");
+  tabsBox.innerHTML = "";
+
+  if (!zachGroups.length) {
+    document.getElementById("zachTableBox").innerHTML =
+      `<div class="msg">Файл ${ZACH_FILE} не найден или пуст</div>`;
+    document.getElementById("zachSubtitle").textContent = "";
+    show("view-zach");
+    return;
+  }
+
+  zachGroups.forEach((g, i) => {
+    const tab = document.createElement("button");
+    tab.className = "zach-tab";
+    tab.textContent = g.tab;
+    tab.onclick = () => renderZachTable(i);
+    tabsBox.appendChild(tab);
+  });
+
+  renderZachTable(0);
+  show("view-zach");
+}
+
+/* ============ прочее ============ */
+function showDays() { show("view-days"); }
+
+/* ============ старт ============ */
+Promise.all([loadFile(), loadZachFile()])
+  .then(() => renderDays())
+  .catch(e => {
+    document.getElementById("fileInfo").textContent = "Ошибка: " + e.message;
+    renderDays();
+  });
+</script>
+</body>
+</html>
