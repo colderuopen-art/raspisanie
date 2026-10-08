@@ -63,6 +63,8 @@
   .day-btn.wide { grid-column: 1 / -1; text-align: center; }
   /* кнопка звонков — как остальные, только фон с лёгкой голубизной */
   .day-btn.bells { background: #ddeafa; }
+  /* НОВОЕ: кнопка заочников — светло-оранжевая */
+  .day-btn.zach { background: #fdece3; border-top-color: var(--orange); }
 
   /* шапка экрана таблицы */
   .topbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 14px; }
@@ -110,6 +112,40 @@
 
   .msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 15px; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
+
+  /* ====== НОВОЕ: экран «Заочное обучение» ====== */
+  .zach-tabs {
+    display: flex; overflow-x: auto; gap: 8px;
+    padding: 4px 2px 12px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    -webkit-overflow-scrolling: touch;
+  }
+  .zach-tabs::-webkit-scrollbar { height: 6px; }
+  .zach-tabs::-webkit-scrollbar-thumb { background: #d3dbd7; border-radius: 3px; }
+  .zach-tab {
+    flex: 0 0 auto; padding: 9px 16px; border-radius: 10px;
+    background: var(--card); border: 1px solid var(--border);
+    cursor: pointer; font-size: 14px; font-weight: 600;
+    color: var(--text); white-space: nowrap;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .zach-tab:hover { background: #f2f7fd; }
+  .zach-tab.active {
+    background: var(--navy); color: #fff; border-color: var(--navy);
+  }
+
+  /* таблица заочников: у нас "файл как есть", поэтому строки с днями — заголовочные */
+  .zach-table td, .zach-table th { font-size: 13px; padding: 8px 10px; }
+  .zach-day-row td {
+    background: #eef4fb; font-weight: 700; color: var(--navy);
+  }
+  .zach-date-row td {
+    background: #f7fafc; color: var(--muted); font-size: 12px;
+  }
+  .zach-group-title {
+    font-size: 14px; font-weight: 700; color: var(--navy);
+    padding: 12px 4px 6px; margin-bottom: 4px;
+  }
 
   /* ====== планшеты и ПК ====== */
   @media (min-width: 720px) {
@@ -169,13 +205,24 @@
     </div>
   </section>
 
+  <!-- НОВОЕ: экран 4: расписание заочного обучения -->
+  <section id="view-zach" class="view">
+    <div class="topbar">
+      <button class="back" onclick="showDays()">‹</button>
+      <div class="title"><h2>Расписание заочное обучение</h2><span id="zachSubtitle"></span></div>
+    </div>
+    <div id="zachTabs" class="zach-tabs"></div>
+    <div id="zachTableBox"></div>
+  </section>
+
   <div class="footer" id="footer"></div>
 </div>
 
 <script>
 /* ============ настройки ============ */
-const XLSX_FILE = "Расписание.xlsx";  // файл должен лежать рядом с index.html
-const BELLS_FILE = "Звонки.jpg";      // картинка со звонками — рядом с index.html
+const XLSX_FILE  = "Расписание.xlsx";  // очники
+const BELLS_FILE = "Звонки.jpg";       // картинка со звонками
+const ZACH_FILE  = "зо.xlsx";          // НОВОЕ: файл для заочников
 
 // на экране только рабочие дни; воскресенья нет
 const DAYS = ["ПОНЕДЕЛЬНИК","ВТОРНИК","СРЕДА","ЧЕТВЕРГ","ПЯТНИЦА","СУББОТА"];
@@ -184,16 +231,22 @@ const DAYS_RU = {
   "ЧЕТВЕРГ": "Четверг", "ПЯТНИЦА": "Пятница", "СУББОТА": "Суббота"
 };
 
-let schedule = {};  // данные из файла
+let schedule = {};        // очники
+let zachGroups = [];      // НОВОЕ: [{title, rows}, ...] — блоки заочников
 
-/* ============ чтение xlsx в браузере ============ */
+/* ============ вспомогательное ============ */
 function fmtDate(d) {
   const p = n => String(n).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
 
+/* ============ чтение xlsx очников ============ */
 async function loadFile() {
-  // no-store + метка времени: после замены файла данные будут свежие
   const resp = await fetch(encodeURI(XLSX_FILE) + "?v=" + Date.now(), { cache: "no-store" });
   if (!resp.ok) throw new Error("не найден файл " + XLSX_FILE);
   const lastMod = resp.headers.get("Last-Modified");
@@ -206,11 +259,11 @@ async function loadFile() {
 
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
 
-    // строка 1 — ищем дату
     let date = "";
-    for (const v of (rows[0] || [])) { if (v instanceof Date && !isNaN(v)) { date = fmtDate(v); break; } }
+    for (const v of (rows[0] || [])) {
+      if (v instanceof Date && !isNaN(v)) { date = fmtDate(v); break; }
+    }
 
-    // строка 2 — заголовки пар (количество любое, читаем до первой пустой)
     const hdr = rows[1] || [];
     const pairs = [];
     for (let c = 1; c < hdr.length; c++) {
@@ -219,7 +272,6 @@ async function loadFile() {
       pairs.push(h);
     }
 
-    // строка 3 и ниже — группы и предметы
     const data = [];
     for (let r = 2; r < rows.length; r++) {
       const g = String(rows[r][0] ?? "").trim();
@@ -237,15 +289,93 @@ async function loadFile() {
     upd ? "Обновление " + fmtDate(upd) : "";
 }
 
+/* ============ НОВОЕ: чтение xlsx заочников ============
+   Файл содержит ОДИН лист, внутри которого — несколько блоков,
+   разделённых заголовками вида:
+     "Расписание занятий заочного отделения групп Эу-358,359,360"
+   Режем лист на блоки по этим заголовкам и делаем из них вкладки.
+*/
+async function loadZachFile() {
+  try {
+    const resp = await fetch(encodeURI(ZACH_FILE) + "?v=" + Date.now(), { cache: "no-store" });
+    if (!resp.ok) throw new Error("не найден файл " + ZACH_FILE);
+    const wb = XLSX.read(await resp.arrayBuffer(), { cellDates: true });
+
+    zachGroups = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+
+      // Индекс колонки, в которой лежат заголовки блоков (обычно A=0 или B=1).
+      // Ищем по первой строке, содержащей подстроку "заочн".
+      let titleCol = 1;
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < (rows[r] || []).length; c++) {
+          const v = String(rows[r][c] || "");
+          if (/заочн/i.test(v) && /групп/i.test(v)) { titleCol = c; r = rows.length; break; }
+        }
+      }
+
+      // Находим все строки-заголовки блоков
+      const titleIdx = [];
+      for (let r = 0; r < rows.length; r++) {
+        const v = String((rows[r] || [])[titleCol] || "").trim();
+        if (/^Расписание занятий заочного отделения/i.test(v)) {
+          titleIdx.push({ row: r, title: v });
+        }
+      }
+
+      // Режем на блоки
+      for (let i = 0; i < titleIdx.length; i++) {
+        const start = titleIdx[i].row;
+        const end   = (i + 1 < titleIdx.length) ? titleIdx[i + 1].row : rows.length;
+
+        // Строки блока, начиная со следующей после заголовка
+        const blockRows = [];
+        for (let r = start + 1; r < end; r++) {
+          const row = rows[r] || [];
+          // Обрезаем строку по последней значимой ячейке
+          let last = -1;
+          for (let c = 0; c < row.length; c++) {
+            if (String(row[c] || "").trim() !== "") last = c;
+          }
+          if (last >= 0) blockRows.push(row.slice(0, last + 1));
+          else blockRows.push([]); // пустая строка — сохраняем как разделитель
+        }
+
+        // Отрезаем "хвостовые" пустые строки блока
+        while (blockRows.length && blockRows[blockRows.length - 1].every(v => String(v || "").trim() === "")) {
+          blockRows.pop();
+        }
+
+        // Заголовок для вкладки: сокращаем до названий групп
+        let tabTitle = titleIdx[i].title
+          .replace(/^Расписание занятий заочного отделения\s*/i, "")
+          .replace(/^групп\s*/i, "")
+          .trim();
+        if (!tabTitle) tabTitle = "Группа " + (i + 1);
+
+        zachGroups.push({
+          title: titleIdx[i].title,     // полный заголовок для подписи
+          tab:   tabTitle,              // короткое имя для вкладки
+          rows:  blockRows,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Ошибка загрузки файла заочников:", e);
+    zachGroups = [{ title: "Ошибка загрузки", tab: "Ошибка",
+                    rows: [[`Не удалось загрузить файл ${ZACH_FILE}`]] }];
+  }
+}
+
 /* ============ навигация ============ */
-// открыто ли внутри MAX (мост подключён)?
 const inMax = typeof window.WebApp !== "undefined" && window.WebApp;
 if (inMax) {
   WebApp.ready();
-  // системная кнопка «Назад» в MAX: с таблицы/звонков — на дни, с дней — закрыть
   WebApp.BackButton.onClick(() => {
     const active = document.querySelector(".view.active").id;
-    if (active === "view-table" || active === "view-bells") showDays();
+    if (active === "view-table" || active === "view-bells" || active === "view-zach") showDays();
     else WebApp.close();
   });
 }
@@ -259,19 +389,13 @@ function syncBackButton() {
 function show(id) {
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById(id).classList.add("active");
-  // на экране таблицы контейнер шире
-  document.getElementById("wrap").classList.toggle("wide", id === "view-table");
+  const wideViews = ["view-table", "view-zach"];
+  document.getElementById("wrap").classList.toggle("wide", wideViews.includes(id));
   window.scrollTo(0, 0);
   syncBackButton();
 }
 
-function esc(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-/* экран 1: дни — все 6 всегда активны, дата под названием мелким текстом */
+/* ============ экран 1: дни ============ */
 function renderDays() {
   const box = document.getElementById("days");
   box.innerHTML = "";
@@ -285,15 +409,22 @@ function renderDays() {
     box.appendChild(b);
   });
 
-  // кнопка «Расписание звонков» (картинка)
+  // кнопка «Расписание звонков»
   const bells = document.createElement("button");
   bells.className = "day-btn bells wide";
   bells.innerHTML = "Расписание звонков<small>время начала и конца пар</small>";
   bells.onclick = showBells;
   box.appendChild(bells);
+
+  // НОВОЕ: кнопка «Расписание заочное обучение»
+  const zach = document.createElement("button");
+  zach.className = "day-btn zach wide";
+  zach.innerHTML = "Расписание заочное обучение<small>сессии по группам заочного отделения</small>";
+  zach.onclick = showZach;
+  box.appendChild(zach);
 }
 
-/* экран 2: вся таблица дня; если пар нет — колонка с прочерками */
+/* ============ экран 2: таблица дня (очники) ============ */
 function showTable(day) {
   const d = schedule[day];
   document.getElementById("tblDay").textContent = DAYS_RU[day];
@@ -306,7 +437,6 @@ function showTable(day) {
     return;
   }
 
-  // если колонок с парами в файле нет (например, суббота) — одна колонка с прочерками
   const pairs = d.pairs.length ? d.pairs : ["Занятия"];
 
   let html = '<div class="tbl-wrap"><table><thead><tr><th class="grp">Группа</th>';
@@ -328,23 +458,113 @@ function showTable(day) {
   show("view-table");
 }
 
-/* экран 3: расписание звонков */
+/* ============ экран 3: звонки ============ */
 function showBells() {
   const img = document.getElementById("bellsImg");
   document.getElementById("bellsErr").style.display = "none";
   img.style.display = "";
-  // ?v=... — чтобы после замены картинки показывалась свежая, а не из кэша
   img.src = encodeURI(BELLS_FILE) + "?v=" + Date.now();
   show("view-bells");
 }
 
+/* ============ НОВОЕ: экран 4 — заочники ============
+   Рендерит таблицу блока "как в Excel": без заголовков <thead>,
+   первая строка блока — обычная строка таблицы. Строки, где во всех
+   ячейках написано название дня недели, подсвечиваем. Строки с датой —
+   тоже слегка подсвечиваем. Пустые строки оставляем как разделители.
+*/
+function renderZachTable(idx) {
+  const group = zachGroups[idx];
+  if (!group) return;
+
+  // Переключаем активную вкладку
+  document.querySelectorAll(".zach-tab").forEach((t, i) => {
+    t.classList.toggle("active", i === idx);
+  });
+  document.getElementById("zachSubtitle").textContent = group.title;
+
+  const rows = group.rows || [];
+  if (!rows.length) {
+    document.getElementById("zachTableBox").innerHTML =
+      `<div class="msg">Нет данных на этот блок</div>`;
+    return;
+  }
+
+  // Определяем максимальное число колонок
+  const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
+
+  // Собираем HTML-таблицу
+  let html = '<div class="tbl-wrap"><table class="zach-table"><tbody>';
+  rows.forEach(r => {
+    // Пустая строка-разделитель
+    if (!r.length || r.every(v => String(v || "").trim() === "")) {
+      html += `<tr class="zach-date-row"><td colspan="${colCount}">&nbsp;</td></tr>`;
+      return;
+    }
+
+    // Проверяем тип строки
+    const nonEmpty = r.map(v => String(v || "").trim()).filter(Boolean);
+    const isDayRow = nonEmpty.length > 0 &&
+      nonEmpty.every(v => ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"].includes(v));
+    const isDateRow = nonEmpty.length > 0 &&
+      nonEmpty.every(v => /^\d{4}-\d{2}-\d{2}/.test(v) || /^\d{2}\.\d{2}\.\d{4}$/.test(v));
+
+    let cls = "";
+    if (isDayRow) cls = ' class="zach-day-row"';
+    else if (isDateRow) cls = ' class="zach-date-row"';
+
+    html += `<tr${cls}>`;
+    for (let c = 0; c < colCount; c++) {
+      const raw = r[c];
+      let val = raw == null ? "" : String(raw);
+      // Даты форматируем красиво
+      if (raw instanceof Date && !isNaN(raw)) val = fmtDate(raw);
+      // ISO-строку с временем тоже форматируем
+      const m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) val = `${m[3]}.${m[2]}.${m[1]}`;
+      html += `<td>${esc(val)}</td>`;
+    }
+    html += "</tr>";
+  });
+  html += "</tbody></table></div>";
+
+  document.getElementById("zachTableBox").innerHTML = html;
+}
+
+function showZach() {
+  const tabsBox = document.getElementById("zachTabs");
+  tabsBox.innerHTML = "";
+
+  if (!zachGroups.length) {
+    document.getElementById("zachTableBox").innerHTML =
+      `<div class="msg">Файл ${ZACH_FILE} не найден или пуст</div>`;
+    document.getElementById("zachSubtitle").textContent = "";
+    show("view-zach");
+    return;
+  }
+
+  // Вкладки по группам
+  zachGroups.forEach((g, i) => {
+    const tab = document.createElement("button");
+    tab.className = "zach-tab";
+    tab.textContent = g.tab;
+    tab.onclick = () => renderZachTable(i);
+    tabsBox.appendChild(tab);
+  });
+
+  renderZachTable(0);
+  show("view-zach");
+}
+
+/* ============ прочее ============ */
 function showDays() { show("view-days"); }
 
 /* ============ старт ============ */
-loadFile()
-  .then(renderDays)
+Promise.all([loadFile(), loadZachFile()])
+  .then(() => renderDays())
   .catch(e => {
     document.getElementById("fileInfo").textContent = "Ошибка: " + e.message;
+    renderDays();
   });
 </script>
 </body>
