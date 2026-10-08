@@ -106,14 +106,10 @@
   .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 
   /* ======== Таблица заочников ========
-     Схема:
-       .zach-scroll — внешний контейнер, скролл вертикаль (страница)
-       .zach-zoom   — контейнер, который зумится пальцами.
-                      pinch-zoom разрешён только ему → остальная страница
-                      не масштабируется.
-       .zach-wrap   — скролл по горизонтали внутри блока.
-     Шапка колонок + заголовок группы склеены в одну sticky-строку,
-     чтобы не «съезжали».
+     Внешний контейнер .zach-scroll — скролл по вертикали/горизонтали.
+     Внутри — .zach-wrap с таблицей. Pinch-zoom разрешён только для
+     этого блока. Зум управляется вручную через JS, чтобы страница
+     снаружи оставалась на месте, а масштабировалась только таблица.
   */
   .zach-scroll {
     overflow: auto; background: var(--card);
@@ -121,15 +117,13 @@
     max-height: calc(100vh - 190px);
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    touch-action: pan-x pan-y pinch-zoom;
-  }
-  .zach-zoom {
-    transform-origin: top left;
-    /* сам контейнер ничего не масштабирует — масштаб задаётся через JS-transform */
-    will-change: transform;
+    /* pinch-zoom здесь мы перехватываем и обрабатываем сами,
+       поэтому touch-action ограничиваем только скроллом */
+    touch-action: pan-x pan-y;
   }
   .zach-wrap {
-    overflow: visible;
+    transform-origin: top left;
+    will-change: transform;
   }
   .zach-wrap table {
     border-collapse: separate; border-spacing: 0;
@@ -145,7 +139,7 @@
   }
   .zach-wrap th:last-child, .zach-wrap td:last-child { border-right: none; }
 
-  /* Заголовок группы — липкий, верх */
+  .zach-wrap { --title-h: 34px; }
   .zach-wrap tr.group-title td {
     position: sticky; top: 0; z-index: 6;
     background: #eaf1fa; color: var(--navy);
@@ -153,25 +147,18 @@
     border-top: 2px solid var(--navy);
     border-bottom: 1px solid var(--navy);
   }
-  /* Шапка колонок — липкая, чуть ниже заголовка группы.
-     Значение top = высота заголовка группы. На мобилке заголовок
-     может быть в 2 строки, поэтому задаём побольше и через CSS-переменную. */
-  .zach-wrap { --title-h: 34px; }
   .zach-wrap tr.header-row td {
     position: sticky; top: var(--title-h); z-index: 5;
     background: var(--navy); color: #fff;
     font-weight: 700; font-size: 12px;
     white-space: nowrap;
   }
-  /* строка с днём недели */
   .zach-wrap tr.day-row td {
     background: #eef4fb; color: var(--navy); font-weight: 700;
   }
-  /* строка с датой */
   .zach-wrap tr.date-row td {
     background: #f7fafc; color: var(--muted); font-size: 12px;
   }
-  /* пустая строка-разделитель */
   .zach-wrap tr.empty-row td {
     background: transparent; border: none; padding: 6px 0;
   }
@@ -236,36 +223,11 @@
       <button class="back" onclick="showDays()">‹</button>
       <div class="title"><h2>Расписание заочное обучение</h2><span>по файлу зо.xlsx</span></div>
     </div>
-    <!-- сюда вставится таблица с управлением зумом -->
     <div id="zachTableBox"></div>
-    <!-- плавающие кнопки зума (появляются только на этом экране) -->
-    <div id="zachZoomControls" class="zach-zoom-controls" style="display:none">
-      <button class="zbtn" onclick="zachZoom(-0.2)" aria-label="Уменьшить">−</button>
-      <button class="zbtn" onclick="zachZoom(0)"   aria-label="Сбросить">100%</button>
-      <button class="zbtn" onclick="zachZoom(0.2)" aria-label="Увеличить">+</button>
-    </div>
   </section>
 
   <div class="footer" id="footer"></div>
 </div>
-
-<style>
-  /* Плавающие кнопки зума — только на экране заочников */
-  .zach-zoom-controls {
-    position: fixed; right: 14px; bottom: 18px;
-    display: flex; gap: 6px; z-index: 999;
-  }
-  .zach-zoom-controls .zbtn {
-    border: 1px solid var(--border); background: var(--card);
-    color: var(--navy); font-weight: 700;
-    width: 44px; height: 44px; border-radius: 12px;
-    box-shadow: 0 3px 10px rgba(23,50,79,.15);
-    font-size: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .zach-zoom-controls .zbtn:active { transform: scale(.95); }
-  .zach-zoom-controls .zbtn:nth-child(2) { width: 60px; font-size: 13px; }
-</style>
 
 <script>
 /* ============ настройки ============ */
@@ -401,9 +363,6 @@ function show(id) {
   document.getElementById(id).classList.add("active");
   const wideViews = ["view-table", "view-zach"];
   document.getElementById("wrap").classList.toggle("wide", wideViews.includes(id));
-  // показываем плавающие кнопки зума только на экране заочников
-  document.getElementById("zachZoomControls").style.display =
-    (id === "view-zach") ? "flex" : "none";
   window.scrollTo(0, 0);
   syncBackButton();
 }
@@ -474,45 +433,80 @@ function showBells() {
   show("view-bells");
 }
 
-/* ============ ЗАОЧНИКИ: зум только внутри блока ============
-   Переменные зума: zachZoomLevel — текущий масштаб (1 = 100%).
-   Применяется к элементу .zach-zoom через transform: scale().
-   Внутри .zach-scroll запрещён page-zoom (user-scalable=no снаружи),
-   но разрешён pinch-zoom — он тоже работает как нативный зум браузера.
-   Дополнительно кнопки "−  100%  +" дают точное управление.
+/* ============ ЗАОЧНИКИ: pinch-to-zoom пальцами ============
+   Мы НЕ используем браузерный zoom (страница снаружи зафиксирована).
+   Внутри .zach-scroll ловим жесты двумя пальцами и меняем transform:scale
+   у .zach-wrap. Соответственно скроллбар у .zach-scroll остаётся на месте
+   и корректно пересчитывает размер увеличенной таблицы через width/height.
 */
-let zachZoomLevel = 1;
+function setupZachPinch() {
+  const scroll = document.querySelector(".zach-scroll");
+  const wrap   = document.querySelector(".zach-wrap");
+  if (!scroll || !wrap) return;
 
-function zachZoom(delta) {
-  const el = document.querySelector(".zach-zoom");
-  if (!el) return;
-  if (delta === 0) {
-    zachZoomLevel = 1;   // кнопка «100%»
-  } else {
-    zachZoomLevel = Math.min(3, Math.max(0.5, zachZoomLevel + delta));
+  let scale = 1;
+  let startDist = 0;
+  let startScale = 1;
+  let pinchActive = false;
+
+  // Внутренний контейнер для пересчёта размеров скролла
+  // (чтобы увеличенная таблица корректно скроллилась)
+  function applyScale(newScale) {
+    scale = Math.min(3, Math.max(0.5, newScale));
+    wrap.style.transform = `scale(${scale})`;
+    // Пересчитываем area скролла с учётом масштаба
+    const rect = wrap.getBoundingClientRect();
+    // размеры контейнера-родителя не трогаем — transform не влияет на layout,
+    // поэтому браузер сам расширит область скролла.
   }
-  applyZachZoom();
-  // обновляем надпись на средней кнопке
-  const mid = document.querySelector("#zachZoomControls .zbtn:nth-child(2)");
-  if (mid) mid.textContent = Math.round(zachZoomLevel * 100) + "%";
-}
 
-function applyZachZoom() {
-  const el = document.querySelector(".zach-zoom");
-  if (!el) return;
-  el.style.transform = `scale(${zachZoomLevel})`;
-  // чтобы увеличить область скролла под увеличенный контент:
-  // задаём width/height через трансформ-обёртку. Простой способ — позволить
-  // браузеру самому рассчитать размеры; мы обернули в .zach-scroll,
-  // поэтому увеличенная таблица просто выходит за границы, а скролл работает.
+  function distance(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  scroll.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) {
+      pinchActive = true;
+      startDist = distance(e.touches[0], e.touches[1]);
+      startScale = scale;
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  scroll.addEventListener("touchmove", (e) => {
+    if (!pinchActive || e.touches.length !== 2) return;
+    const d = distance(e.touches[0], e.touches[1]);
+    if (!startDist) return;
+    const ratio = d / startDist;
+    applyScale(startScale * ratio);
+    e.preventDefault();
+  }, { passive: false });
+
+  function endPinch(e) {
+    if (e.touches.length < 2) {
+      pinchActive = false;
+      startDist = 0;
+    }
+  }
+  scroll.addEventListener("touchend", endPinch);
+  scroll.addEventListener("touchcancel", endPinch);
+
+  // Двойной тап — сброс к 100%
+  let lastTap = 0;
+  scroll.addEventListener("touchend", (e) => {
+    const now = Date.now();
+    if (now - lastTap < 300 && e.touches.length === 0) {
+      applyScale(1);
+    }
+    lastTap = now;
+  });
 }
 
 /* ============ заочники — рендер ============ */
 function showZach() {
   const box = document.getElementById("zachTableBox");
-  zachZoomLevel = 1;
-  const mid = document.querySelector("#zachZoomControls .zbtn:nth-child(2)");
-  if (mid) mid.textContent = "100%";
 
   if (!zachSheets.length) {
     box.innerHTML = `<div class="msg">Файл ${ZACH_FILE} не найден или пуст</div>`;
@@ -520,9 +514,7 @@ function showZach() {
     return;
   }
 
-  // Наружный контейнер со скроллом (и по вертикали, и по горизонтали),
-  // внутри — обёртка для зума (.zach-zoom), внутри — таблица.
-  let html = '<div class="zach-scroll"><div class="zach-zoom">';
+  let html = '<div class="zach-scroll"><div class="zach-wrap">';
 
   zachSheets.forEach(sheet => {
     const rows = sheet.rows || [];
@@ -530,7 +522,7 @@ function showZach() {
 
     const colCount = rows.reduce((m, r) => Math.max(m, (r || []).length), 0);
 
-    html += '<div class="zach-wrap" style="margin-bottom:16px"><table>';
+    html += '<div style="margin-bottom:16px"><table>';
     rows.forEach(row => {
       const r = row || [];
       const vals = r.map(cellToString);
@@ -574,6 +566,10 @@ function showZach() {
 
   html += "</div></div>";
   box.innerHTML = html;
+
+  // после вставки в DOM — включаем распознавание жестов
+  setupZachPinch();
+
   show("view-zach");
 }
 
